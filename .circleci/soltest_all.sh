@@ -57,14 +57,27 @@ echo "Running steps $RUN_STEPS..."
 
 STEP=1
 
-[[ " $RUN_STEPS " =~ " $STEP " ]] && EVM=istanbul OPTIMIZE=1 ABI_ENCODER_V2=1 "${REPODIR}/.circleci/soltest.sh"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  LIBEVMONE=/usr/local/lib/libevmone.dylib
+  LIBHERA=/usr/local/lib/libhera.dylib
+else
+  LIBEVMONE=/usr/lib/libevmone.so
+  LIBHERA=/usr/lib/libhera.so
+fi
+
+[[ " $RUN_STEPS " =~ " $STEP " ]] && EVM=istanbul OPTIMIZE=1 ABI_ENCODER_V2=1 SOLTEST_FLAGS="--vm ${LIBEVMONE}" ${REPODIR}/.circleci/soltest.sh
 STEP=$(($STEP + 1))
 
 for OPTIMIZE in ${OPTIMIZE_VALUES[@]}
 do
     for EVM in ${EVM_VALUES[@]}
     do
-        [[ " $RUN_STEPS " =~ " $STEP " ]] && EVM="$EVM" OPTIMIZE="$OPTIMIZE" BOOST_TEST_ARGS="-t !@nooptions" "${REPODIR}/.circleci/soltest.sh"
+        HERA_VM_ARGS=""
+
+        # run tests against hera ewasm evmc vm, only if OPTIMIZE == 0 and evm version is byzantium
+        [ "${EVM}" = "byzantium" ] && [ "${OPTIMIZE}" = "0" ] && HERA_VM_ARGS="--vm ${LIBHERA}"
+
+        [[ " $RUN_STEPS " =~ " $STEP " ]] && EVM="$EVM" OPTIMIZE="$OPTIMIZE" SOLTEST_FLAGS="--vm ${LIBEVMONE} ${HERA_VM_ARGS}" BOOST_TEST_ARGS="-t !@nooptions" "${REPODIR}/.circleci/soltest.sh"
         STEP=$(($STEP + 1))
     done
 done
