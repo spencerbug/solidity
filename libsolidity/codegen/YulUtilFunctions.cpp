@@ -1911,8 +1911,47 @@ string YulUtilFunctions::conversionFunction(Type const& _from, Type const& _to)
 			break;
 		}
 		case Type::Category::Struct:
-			solUnimplementedAssert(false, "Struct conversion not implemented.");
+		{
+			solAssert(toCategory == Type::Category::Struct, "");
+			auto const& fromStructType = dynamic_cast<StructType const &>(_from);
+			auto const& toStructType = dynamic_cast<StructType const &>(_to);
+			solAssert(fromStructType.structDefinition() == toStructType.structDefinition(), "");
+
+			solUnimplementedAssert(!fromStructType.isDynamicallyEncoded(), "");
+			solUnimplementedAssert(toStructType.location() == DataLocation::Memory, "");
+			solUnimplementedAssert(fromStructType.location() == DataLocation::CallData, "");
+
+			MemberList::MemberMap toStructMembers = toStructType.nativeMembers(nullptr);
+			MemberList::MemberMap fromStructMembers = fromStructType.nativeMembers(nullptr);
+			solAssert(toStructMembers.size() == fromStructMembers.size(), "");
+
+			vector<map<string, string>> memberValuesAndSizes(toStructMembers.size());
+			vector<string> memberParamNames(toStructMembers.size());
+			for (size_t i = 0; i < toStructMembers.size(); ++i)
+			{
+				memberParamNames[i] = "member_" + toStructMembers[i].name;
+				memberValuesAndSizes[i]["memberOffset"] = toStructType.memoryOffsetOfMember(toStructMembers[i].name).str();
+				memberValuesAndSizes[i]["memberValue"] = memberParamNames[i];
+			}
+
+			Whiskers t(R"(
+				let <memberParams> := <abiDecode>(value, add(value, <dataSize>))
+				converted := <allocStruct>()
+				<#member>
+					mstore(add(converted, <memberOffset>), <memberValue>)
+				</member>
+			)");
+			t("allocStruct", allocateMemoryStructFunction(toStructType));
+			t("abiDecode", ABIFunctions(m_evmVersion, m_revertStrings, m_functionCollector).tupleDecoder(
+				fromStructType.memoryMemberTypes()
+			));
+			t("dataSize", fromStructType.memoryDataSize().str());
+			t("memberParams", joinHumanReadable(memberParamNames));
+			t("member", memberValuesAndSizes);
+
+			body = t.render();
 			break;
+		}
 		case Type::Category::FixedBytes:
 		{
 			FixedBytesType const& from = dynamic_cast<FixedBytesType const&>(_from);
