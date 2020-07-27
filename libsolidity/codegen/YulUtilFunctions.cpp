@@ -1325,18 +1325,22 @@ string YulUtilFunctions::readFromCalldata(Type const& _type)
 	return readFromMemoryOrCalldata(_type, true);
 }
 
-string YulUtilFunctions::updateStorageValueFunction(Type const& _type, std::optional<unsigned> const& _offset)
+string YulUtilFunctions::updateStorageValueFunction(
+	Type const& _toType,
+	Type const* _fromType,
+	std::optional<unsigned> const& _offset
+)
 {
 	string const functionName =
 		"update_storage_value_" +
 		(_offset.has_value() ? ("offset_" + to_string(*_offset)) : "") +
-		_type.identifier();
+		_toType.identifier();
 
 	return m_functionCollector.createFunction(functionName, [&] {
-		if (_type.isValueType())
+		if (_toType.isValueType())
 		{
-			solAssert(_type.storageBytes() <= 32, "Invalid storage bytes size.");
-			solAssert(_type.storageBytes() > 0, "Invalid storage bytes size.");
+			solAssert(_toType.storageBytes() <= 32, "Invalid storage bytes size.");
+			solAssert(_toType.storageBytes() > 0, "Invalid storage bytes size.");
 
 			return Whiskers(R"(
 				function <functionName>(slot, <offset>value) {
@@ -1347,19 +1351,55 @@ string YulUtilFunctions::updateStorageValueFunction(Type const& _type, std::opti
 			("functionName", functionName)
 			("update",
 				_offset.has_value() ?
-					updateByteSliceFunction(_type.storageBytes(), *_offset) :
-					updateByteSliceFunctionDynamic(_type.storageBytes())
+					updateByteSliceFunction(_toType.storageBytes(), *_offset) :
+					updateByteSliceFunctionDynamic(_toType.storageBytes())
 			)
 			("offset", _offset.has_value() ? "" : "offset, ")
-			("prepare", prepareStoreFunction(_type))
+			("prepare", prepareStoreFunction(_toType))
 			.render();
 		}
 		else
 		{
-			if (_type.category() == Type::Category::Array)
+			if (_toType.category() == Type::Category::Array)
 				solUnimplementedAssert(false, "");
-			else if (_type.category() == Type::Category::Struct)
-				solUnimplementedAssert(false, "");
+			else if (_toType.category() == Type::Category::Struct)
+			{
+				solAssert(_fromType, "");
+				solAssert(_fromType->category() == Type::Category::Struct, "");
+				auto const& fromStructType = dynamic_cast<StructType const&>(*_fromType);
+				auto const& toStructType = dynamic_cast<StructType const&>(_toType);
+				solAssert(fromStructType.structDefinition() == toStructType.structDefinition(), "");
+				solUnimplementedAssert(fromStructType.location() == DataLocation::Memory, "");
+				solUnimplementedAssert(_offset.has_value() && _offset.value() == 0, "");
+
+				Whiskers templ(R"(
+					function <functionName>(slot, value) {
+						<#member>
+							<updateMember>(add(slot, <memberStorageSlotDiff>), <memberOffset>, <loadValue>(add(value, <memberPtrOffset>)))
+						</member>
+					}
+				)");
+				templ("functionName", functionName);
+
+				MemberList::MemberMap toStructMembers = toStructType.nativeMembers(nullptr);
+				MemberList::MemberMap fromStructMembers = fromStructType.nativeMembers(nullptr);
+
+				vector<map<string, string>> memberParams(toStructMembers.size());
+				for (size_t i = 0; i < toStructMembers.size(); ++i)
+				{
+					solAssert(toStructMembers[i].type->memoryHeadSize() == 32, "");
+					solAssert(toStructMembers[i].type->isValueType(), "");
+					memberParams[i]["updateMember"] = updateStorageValueFunction(*toStructMembers[i].type, toStructMembers[i].type);
+					auto const& [slotDiff, offset] = toStructType.storageOffsetsOfMember(toStructMembers[i].name);
+					memberParams[i]["memberStorageSlotDiff"] = slotDiff.str();
+					memberParams[i]["memberOffset"] = to_string(offset);
+					memberParams[i]["memberPtrOffset"] = fromStructType.memoryOffsetOfMember(fromStructMembers[i].name).str();
+					memberParams[i]["loadValue"] = readFromMemory(*fromStructMembers[i].type);
+				}
+				templ("member", memberParams);
+
+				return templ.render();
+			}
 			else
 				solAssert(false, "Invalid non-value type for assignment.");
 		}
