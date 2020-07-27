@@ -7,6 +7,7 @@ Compiler Features:
 
 
 Bugfixes:
+ * SMTChecker: Fix internal error on array implicit conversion.
  * SMTChecker: Fix internal error on fixed bytes index access.
 
 
