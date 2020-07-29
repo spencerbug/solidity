@@ -47,9 +47,5 @@ void yul::removeEmptyBlocks(Block& _block)
 // TODO: Should this be part of the Dialect instead?
 bool yul::isRestrictedIdentifier(Dialect const& _dialect, YulString const& _identifier)
 {
-	if (TokenTraits::keywordByName(_identifier.str()) != Token::Identifier)
-		return true;
-	if (_identifier.empty() || _dialect.builtin(_identifier))
-		return true;
-	return false;
+	return _identifier.empty() || TokenTraits::isYulKeyword(_identifier.str()) || _dialect.builtin(_identifier);
 }
