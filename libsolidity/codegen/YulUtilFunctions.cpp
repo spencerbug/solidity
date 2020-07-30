@@ -1959,7 +1959,7 @@ string YulUtilFunctions::conversionFunction(Type const& _from, Type const& _to)
 
 			solUnimplementedAssert(!fromStructType.isDynamicallyEncoded(), "");
 			solUnimplementedAssert(toStructType.location() == DataLocation::Memory, "");
-			solUnimplementedAssert(fromStructType.location() == DataLocation::CallData, "");
+			solUnimplementedAssert(fromStructType.location() != DataLocation::Memory, "");
 
 			MemberList::MemberMap toStructMembers = toStructType.nativeMembers(nullptr);
 			MemberList::MemberMap fromStructMembers = fromStructType.nativeMembers(nullptr);
@@ -1969,16 +1969,33 @@ string YulUtilFunctions::conversionFunction(Type const& _from, Type const& _to)
 			vector<string> memberParamNames(toStructMembers.size());
 			for (size_t i = 0; i < toStructMembers.size(); ++i)
 			{
-				memberParamNames[i] = "member_" + toStructMembers[i].name;
 				memberValuesAndSizes[i]["memberOffset"] = toStructType.memoryOffsetOfMember(toStructMembers[i].name).str();
-				memberValuesAndSizes[i]["memberValue"] = memberParamNames[i];
+				if (fromStructType.location() == DataLocation::CallData)
+				{
+					memberParamNames[i] = "member_" + toStructMembers[i].name;
+					memberValuesAndSizes[i]["memberValue"] = memberParamNames[i];
+				}
+				else
+				{
+					solAssert(fromStructType.location() == DataLocation::Storage, "");
+					auto const& [memberSlotDiff, memberStorageOffset] = fromStructType.storageOffsetsOfMember(toStructMembers[i].name);
+					memberValuesAndSizes[i]["memberSlotDiff"] = memberSlotDiff.str();
+					memberValuesAndSizes[i]["memberStorageOffset"] = to_string(memberStorageOffset);
+					memberValuesAndSizes[i]["readFromStorage"] = readFromStorageDynamic(*fromStructMembers[i].type, true);
+				}
 			}
 
 			Whiskers t(R"(
-				let <memberParams> := <abiDecode>(value, add(value, <dataSize>))
+				<?fromCallData>
+					let <memberParams> := <abiDecode>(value, add(value, <dataSize>))
+				</fromCallData>
 				converted := <allocStruct>()
 				<#member>
-					mstore(add(converted, <memberOffset>), <memberValue>)
+					<?fromCallData>
+						mstore(add(converted, <memberOffset>), <memberValue>)
+					<!fromCallData>
+						mstore(add(converted, <memberOffset>), <readFromStorage>(add(value, <memberSlotDiff>), <memberStorageOffset>))
+					</fromCallData>
 				</member>
 			)");
 			t("allocStruct", allocateMemoryStructFunction(toStructType));
@@ -1986,7 +2003,9 @@ string YulUtilFunctions::conversionFunction(Type const& _from, Type const& _to)
 				fromStructType.memoryMemberTypes()
 			));
 			t("dataSize", fromStructType.memoryDataSize().str());
-			t("memberParams", joinHumanReadable(memberParamNames));
+			if (fromStructType.location() == DataLocation::CallData)
+				t("memberParams", joinHumanReadable(memberParamNames));
+			t("fromCallData", fromStructType.location() == DataLocation::CallData);
 			t("member", memberValuesAndSizes);
 
 			body = t.render();
