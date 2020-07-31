@@ -598,7 +598,7 @@ bool AsmAnalyzer::validateInstructions(std::string const& _instructionIdentifier
 		m_errorReporter.typeError(
 			5017_error,
 			_location,
-			"The identifier \"" + _instructionIdentifier + "\" can not be used."
+			"The identifier \"" + _instructionIdentifier + "\" is reserved and can not be used."
 		);
 		return true;
 	}
