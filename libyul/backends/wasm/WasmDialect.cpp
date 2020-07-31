@@ -26,13 +26,17 @@
 using namespace std;
 using namespace solidity::yul;
 
+std::string const WasmDialect::i64{"i64"};
+std::string const WasmDialect::i32{"i32"};
+std::string const WasmDialect::i32ptr{"i32"}; // Uses "i32" on purpose.
+
 WasmDialect::WasmDialect()
 {
-	YulString i64 = "i64"_yulstring;
-	YulString i32 = "i32"_yulstring;
-	defaultType = i64;
-	boolType = i32;
-	types = {i64, i32};
+	YulString i64_type = "i64"_yulstring;
+	YulString i32_type = "i32"_yulstring;
+	defaultType = i64_type;
+	boolType = i32_type;
+	types = {i64_type, i32_type};
 
 	for (auto t: types)
 		for (auto const& name: {
@@ -67,10 +71,10 @@ WasmDialect::WasmDialect()
 			// TODO: ge_s
 			"ge_u"
 		})
-			addFunction(t.str() + "." + name, {t, t}, {i32});
+			addFunction(t.str() + "." + name, {t, t}, {i32_type});
 
-	addFunction("i32.eqz", {i32}, {i32});
-	addFunction("i64.eqz", {i64}, {i32});
+	addFunction("i32.eqz", {i32_type}, {i32_type});
+	addFunction("i64.eqz", {i64_type}, {i32_type});
 
 	for (auto t: types)
 		for (auto const& name: {
@@ -80,27 +84,27 @@ WasmDialect::WasmDialect()
 		})
 			addFunction(t.str() + "." + name, {t}, {t});
 
-	addFunction("i32.wrap_i64", {i64}, {i32});
+	addFunction("i32.wrap_i64", {i64_type}, {i32_type});
 
-	addFunction("i64.extend_i32_u", {i32}, {i64});
+	addFunction("i64.extend_i32_u", {i32_type}, {i64_type});
 
-	addFunction("i32.store", {i32, i32}, {}, false);
+	addFunction("i32.store", {i32_type, i32_type}, {}, false);
 	m_functions["i32.store"_yulstring].sideEffects.invalidatesStorage = false;
-	addFunction("i64.store", {i32, i64}, {}, false);
+	addFunction("i64.store", {i32_type, i64_type}, {}, false);
 	m_functions["i64.store"_yulstring].sideEffects.invalidatesStorage = false;
 	// TODO: add i32.store16, i64.store8, i64.store16, i64.store32
 
-	addFunction("i32.store8", {i32, i32}, {}, false);
+	addFunction("i32.store8", {i32_type, i32_type}, {}, false);
 	m_functions["i32.store8"_yulstring].sideEffects.invalidatesStorage = false;
-	addFunction("i64.store8", {i32, i64}, {}, false);
+	addFunction("i64.store8", {i32_type, i64_type}, {}, false);
 	m_functions["i64.store8"_yulstring].sideEffects.invalidatesStorage = false;
 
-	addFunction("i32.load", {i32}, {i32}, false);
+	addFunction("i32.load", {i32_type}, {i32_type}, false);
 	m_functions["i32.load"_yulstring].sideEffects.invalidatesStorage = false;
 	m_functions["i32.load"_yulstring].sideEffects.invalidatesMemory = false;
 	m_functions["i32.load"_yulstring].sideEffects.sideEffectFree = true;
 	m_functions["i32.load"_yulstring].sideEffects.sideEffectFreeIfNoMSize = true;
-	addFunction("i64.load", {i32}, {i64}, false);
+	addFunction("i64.load", {i32_type}, {i64_type}, false);
 	m_functions["i64.load"_yulstring].sideEffects.invalidatesStorage = false;
 	m_functions["i64.load"_yulstring].sideEffects.invalidatesMemory = false;
 	m_functions["i64.load"_yulstring].sideEffects.sideEffectFree = true;
@@ -109,8 +113,8 @@ WasmDialect::WasmDialect()
 
 	// Drop is actually overloaded for all types, but Yul does not support that.
 	// Because of that, we introduce "i32.drop" and "i64.drop".
-	addFunction("i32.drop", {i32}, {});
-	addFunction("i64.drop", {i64}, {});
+	addFunction("i32.drop", {i32_type}, {});
+	addFunction("i64.drop", {i64_type}, {});
 
 	addFunction("nop", {}, {});
 	addFunction("unreachable", {}, {}, false);
@@ -119,10 +123,11 @@ WasmDialect::WasmDialect()
 	m_functions["unreachable"_yulstring].controlFlowSideEffects.terminates = true;
 	m_functions["unreachable"_yulstring].controlFlowSideEffects.reverts = true;
 
-	addFunction("datasize", {i64}, {i64}, true, {true});
-	addFunction("dataoffset", {i64}, {i64}, true, {true});
+	addFunction("datasize", {i64_type}, {i64_type}, true, {true});
+	addFunction("dataoffset", {i64_type}, {i64_type}, true, {true});
 
 	addEthereumExternals();
+	addDebugExternals();
 }
 
 BuiltinFunction const* WasmDialect::builtin(YulString _name) const
@@ -161,18 +166,6 @@ WasmDialect const& WasmDialect::instance()
 
 void WasmDialect::addEthereumExternals()
 {
-	// These are not YulStrings because that would be too complicated with regards
-	// to the YulStringRepository reset.
-	static string const i64{"i64"};
-	static string const i32{"i32"};
-	static string const i32ptr{"i32"}; // Uses "i32" on purpose.
-	struct External
-	{
-		string name;
-		vector<string> parameters;
-		vector<string> returns;
-		ControlFlowSideEffects controlFlowSideEffects = ControlFlowSideEffects{};
-	};
 	static vector<External> externals{
 		{"getAddress", {i32ptr}, {}},
 		{"getExternalBalance", {i32ptr, i32ptr}, {}},
@@ -221,6 +214,34 @@ void WasmDialect::addEthereumExternals()
 		f.controlFlowSideEffects = ext.controlFlowSideEffects;
 		f.isMSize = false;
 		f.sideEffects.invalidatesStorage = (ext.name == "storageStore");
+		f.literalArguments.reset();
+	}
+}
+
+void WasmDialect::addDebugExternals()
+{
+	static vector<External> debugExternals {
+		{"print32", {i32}, {}},
+		{"print64", {i64}, {}},
+		{"printMem", {i32, i32}, {}},
+		{"printMemHex", {i32, i32}, {}},
+		{"printStorage", {i32}, {}},
+		{"printStorageHex", {i32}, {}},
+	};
+	for (External const& ext: debugExternals)
+	{
+		YulString name{"debug." + ext.name};
+		BuiltinFunction& f = m_functions[name];
+		f.name = name;
+		for (string const& p: ext.parameters)
+			f.parameters.emplace_back(YulString(p));
+		for (string const& p: ext.returns)
+			f.returns.emplace_back(YulString(p));
+		// TODO some of them are side effect free.
+		f.sideEffects = SideEffects::worst();
+		f.controlFlowSideEffects = ext.controlFlowSideEffects;
+		f.isMSize = false;
+		f.sideEffects.invalidatesStorage = false;
 		f.literalArguments.reset();
 	}
 }
