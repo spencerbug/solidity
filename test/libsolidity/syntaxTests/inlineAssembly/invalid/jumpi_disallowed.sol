@@ -6,4 +6,4 @@ contract C {
     }
 }
 // ----
-// TypeError 5017: (75-80): The identifier "jumpi" can not be used.
+// TypeError 5017: (75-80): The identifier "jumpi" is reserved and can not be used.

@@ -6,4 +6,4 @@ contract C {
     }
 }
 // ----
-// TypeError 5017: (75-79): The identifier "jump" can not be used.
+// TypeError 5017: (75-79): The identifier "jump" is reserved and can not be used.
